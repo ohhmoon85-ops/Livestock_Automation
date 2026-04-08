@@ -43,9 +43,9 @@ export async function POST(request) {
       { header: 1, defval: "" }
     );
 
-    let shipmentRows;
+    let shipmentRows, headerRowIndex;
     try {
-      shipmentRows = parseShipment(shipRaw);
+      ({ rows: shipmentRows, headerRowIndex } = parseShipment(shipRaw));
     } catch (e) {
       return NextResponse.json({ error: e.message }, { status: 400 });
     }
@@ -84,7 +84,7 @@ export async function POST(request) {
     const { results, warnings } = matchAll(shipmentRows, allOnepassRows);
 
     // ── 출력 파일 생성 ────────────────────────────────────────
-    const outputBuffer = await generateOutput(shipRaw, results);
+    const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex);
 
     // ── 통계 ──────────────────────────────────────────────────
     const total   = results.filter((r) => !r._skipped).length;

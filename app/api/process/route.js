@@ -114,7 +114,7 @@ export async function POST(request) {
       stats: { total, success, warn, skipped },
       warnings: warnList,
       file: fileBase64,         // 클라이언트에서 Blob으로 복원
-      filename: "출고리스트_완성.xlsx",
+      filename: shipmentFile.name || "출고리스트_완성.xlsx",
     });
   } catch (err) {
     console.error("[/api/process]", err);

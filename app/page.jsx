@@ -16,6 +16,7 @@ export default function Home() {
   const [warnings, setWarnings] = useState([]);
   const [resultBlob, setResultBlob] = useState(null);
   const [error, setError] = useState("");
+  const [resultFilename, setResultFilename] = useState("출고리스트_완성.xlsx");
 
   // 활성 탭
   const [tab, setTab] = useState(TAB.MAIN);
@@ -55,6 +56,7 @@ export default function Home() {
         throw new Error(body.error || "서버 오류");
       }
 
+      setResultFilename(body.filename || "출고리스트_완성.xlsx");
       setStats(body.stats ?? {});
       setWarnings(
         (body.warnings ?? []).map((w) => ({
@@ -84,7 +86,7 @@ export default function Home() {
     const url = URL.createObjectURL(resultBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "출고리스트_완성.xlsx";
+    a.download = resultFilename;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -97,6 +99,7 @@ export default function Home() {
     setWarnings([]);
     setResultBlob(null);
     setError("");
+    setResultFilename("출고리스트_완성.xlsx");
   };
 
   return (

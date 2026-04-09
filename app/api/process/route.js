@@ -1,9 +1,9 @@
 /**
  * /api/process
- * 출고리스트 + 원패스 → 완성 xlsx 반환
+ * 출고리스트 + 원패스 → JSON 응답 (xlsx는 base64로 포함)
  *
- * 원패스 파일 내 모든 시트를 읽어 하나의 풀(pool)로 합산 처리.
- * 시트 이름에 제한 없음 (도축장·냉장·기타 모두 허용).
+ * HTTP 헤더에 한글을 넣으면 ByteString 오류가 발생하므로
+ * 통계·경고·파일 모두 JSON body로 반환합니다.
  */
 
 import { NextResponse } from "next/server";
@@ -20,7 +20,7 @@ export async function POST(request) {
   try {
     const formData = await request.formData();
     const shipmentFile = formData.get("shipment");
-    const onepassFile = formData.get("onepass");
+    const onepassFile  = formData.get("onepass");
 
     if (!shipmentFile || !onepassFile) {
       return NextResponse.json(
@@ -31,9 +31,8 @@ export async function POST(request) {
 
     // ── 출고리스트 파싱 ───────────────────────────────────────
     const shipBuf = Buffer.from(await shipmentFile.arrayBuffer());
-    const shipWb = XLSX.read(shipBuf, { type: "buffer", cellDates: true });
+    const shipWb  = XLSX.read(shipBuf, { type: "buffer", cellDates: true });
 
-    // "매출" 포함 시트 우선, 없으면 첫 번째 시트
     const shipSheetName =
       shipWb.SheetNames.find((n) => n.includes("매출")) ??
       shipWb.SheetNames[0];
@@ -52,10 +51,10 @@ export async function POST(request) {
 
     // ── 원패스 파싱 (모든 시트 합산) ────────────────────────
     const opBuf = Buffer.from(await onepassFile.arrayBuffer());
-    const opWb = XLSX.read(opBuf, { type: "buffer", cellDates: true });
+    const opWb  = XLSX.read(opBuf, { type: "buffer", cellDates: true });
 
     let allOnepassRows = [];
-    const sheetErrors = [];
+    const sheetErrors  = [];
 
     for (const sheetName of opWb.SheetNames) {
       const raw = XLSX.utils.sheet_to_json(
@@ -66,51 +65,49 @@ export async function POST(request) {
         const rows = parseOnepass(raw, sheetName);
         allOnepassRows = allOnepassRows.concat(rows);
       } catch (e) {
-        sheetErrors.push(`시트 "${sheetName}": ${e.message}`);
+        sheetErrors.push(`[${sheetName}] ${e.message}`);
       }
     }
 
     if (allOnepassRows.length === 0) {
-      const detail = sheetErrors.length
-        ? "\n" + sheetErrors.join("\n")
-        : "";
       return NextResponse.json(
-        { error: "원패스 파일에서 유효한 데이터를 찾을 수 없습니다." + detail },
+        {
+          error:
+            "원패스 파일에서 유효한 데이터를 찾을 수 없습니다." +
+            (sheetErrors.length ? "\n" + sheetErrors.join("\n") : ""),
+        },
         { status: 400 }
       );
     }
 
-    // ── 매칭 ──────────────────────────────────────────────────
+    // ── 매칭 ─────────────────────────────────────────────────
     const { results, warnings } = matchAll(shipmentRows, allOnepassRows);
 
     // ── 출력 파일 생성 ────────────────────────────────────────
     const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex);
 
-    // ── 통계 ──────────────────────────────────────────────────
+    // ── 통계 ─────────────────────────────────────────────────
     const total   = results.filter((r) => !r._skipped).length;
     const success = results.filter((r) => r._matched).length;
     const warn    = warnings.length;
     const skipped = results.filter((r) => r._skipped).length;
 
-    const statsHeader = JSON.stringify({ total, success, warn, skipped });
-    const warnHeader  = JSON.stringify(
-      warnings.slice(0, 100).map((w) => ({
-        품목명: w.row?.품목명 ?? "",
-        수량:   w.row?.수량   ?? "",
-        reason: w.reason,
-      }))
-    );
+    // 경고 목록 (한글 포함 → JSON body로)
+    const warnList = warnings.slice(0, 100).map((w) => ({
+      item:   w.row?.품목명 ?? "",
+      qty:    w.row?.수량   ?? "",
+      reason: w.reason,
+    }));
 
-    return new NextResponse(outputBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type":
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition":
-          'attachment; filename*=UTF-8\'\'%EC%B6%9C%EA%B3%A0%EB%A6%AC%EC%8A%A4%ED%8A%B8_%EC%99%84%EC%84%B1.xlsx',
-        "X-Process-Stats": statsHeader,
-        "X-Warnings": warnHeader,
-      },
+    // xlsx를 base64로 인코딩해 JSON에 포함
+    const fileBase64 = Buffer.from(outputBuffer).toString("base64");
+
+    return NextResponse.json({
+      ok: true,
+      stats: { total, success, warn, skipped },
+      warnings: warnList,
+      file: fileBase64,         // 클라이언트에서 Blob으로 복원
+      filename: "출고리스트_완성.xlsx",
     });
   } catch (err) {
     console.error("[/api/process]", err);

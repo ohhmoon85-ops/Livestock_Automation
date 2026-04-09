@@ -29,19 +29,29 @@ export default function Home() {
       form.append("onepass", onepassFile);
 
       const res = await fetch("/api/process", { method: "POST", body: form });
+      const body = await res.json();
 
-      if (!res.ok) {
-        const body = await res.json();
+      if (!res.ok || !body.ok) {
         throw new Error(body.error || "서버 오류");
       }
 
-      const statsRaw = res.headers.get("X-Process-Stats");
-      const warnRaw = res.headers.get("X-Warnings");
+      setStats(body.stats ?? {});
+      // 경고 목록: item/qty/reason → 화면 표시용으로 변환
+      setWarnings(
+        (body.warnings ?? []).map((w) => ({
+          품목명: w.item,
+          수량: w.qty,
+          reason: w.reason,
+        }))
+      );
 
-      setStats(statsRaw ? JSON.parse(statsRaw) : {});
-      setWarnings(warnRaw ? JSON.parse(warnRaw) : []);
-
-      const blob = await res.blob();
+      // base64 → Blob 변환
+      const binary = atob(body.file);
+      const bytes  = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       setResultBlob(blob);
       setStep(STEP.DONE);
     } catch (e) {

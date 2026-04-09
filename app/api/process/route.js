@@ -80,8 +80,15 @@ export async function POST(request) {
       );
     }
 
+    // ── 사용자 정의 도축장 코드 맵 ───────────────────────────
+    let customCodeMap = {};
+    const codeMapStr = formData.get("codeMap");
+    if (codeMapStr) {
+      try { customCodeMap = JSON.parse(codeMapStr); } catch {}
+    }
+
     // ── 매칭 ─────────────────────────────────────────────────
-    const { results, warnings } = matchAll(shipmentRows, allOnepassRows);
+    const { results, warnings } = matchAll(shipmentRows, allOnepassRows, customCodeMap);
 
     // ── 출력 파일 생성 ────────────────────────────────────────
     const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex);

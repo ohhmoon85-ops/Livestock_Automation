@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
 import FileUploader from "@/components/FileUploader";
 import ResultSummary from "@/components/ResultSummary";
+import PlantCodeManager from "@/components/PlantCodeManager";
 
 const STEP = { UPLOAD: 0, PROCESSING: 1, DONE: 2 };
+const TAB = { MAIN: "main", PLANT: "plant" };
 
 export default function Home() {
   const [shipmentFile, setShipmentFile] = useState(null);
@@ -14,6 +16,23 @@ export default function Home() {
   const [warnings, setWarnings] = useState([]);
   const [resultBlob, setResultBlob] = useState(null);
   const [error, setError] = useState("");
+
+  // 활성 탭
+  const [tab, setTab] = useState(TAB.MAIN);
+
+  // 도축장 코드 맵 (localStorage 저장)
+  const [customCodeMap, setCustomCodeMap] = useState({});
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("plantCodeMap");
+      if (saved) setCustomCodeMap(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  const handleCodeMapChange = (newMap) => {
+    setCustomCodeMap(newMap);
+    try { localStorage.setItem("plantCodeMap", JSON.stringify(newMap)); } catch {}
+  };
 
   const handleProcess = async () => {
     if (!shipmentFile || !onepassFile) {
@@ -27,6 +46,7 @@ export default function Home() {
       const form = new FormData();
       form.append("shipment", shipmentFile);
       form.append("onepass", onepassFile);
+      form.append("codeMap", JSON.stringify(customCodeMap));
 
       const res = await fetch("/api/process", { method: "POST", body: form });
       const body = await res.json();
@@ -36,7 +56,6 @@ export default function Home() {
       }
 
       setStats(body.stats ?? {});
-      // 경고 목록: item/qty/reason → 화면 표시용으로 변환
       setWarnings(
         (body.warnings ?? []).map((w) => ({
           품목명: w.item,
@@ -92,81 +111,129 @@ export default function Home() {
         </div>
       </header>
 
+      {/* 탭 네비게이션 */}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-2xl mx-auto flex">
+          <button
+            onClick={() => setTab(TAB.MAIN)}
+            className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === TAB.MAIN
+                ? "border-blue-900 text-blue-900"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            자동 연동
+          </button>
+          <button
+            onClick={() => setTab(TAB.PLANT)}
+            className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === TAB.PLANT
+                ? "border-blue-900 text-blue-900"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            도축장 관리
+          </button>
+        </div>
+      </div>
+
       <main className="flex-1 max-w-2xl mx-auto w-full px-4 py-8 space-y-6">
-        {/* Step 인디케이터 */}
-        <StepIndicator current={step} />
 
-        {/* 오류 메시지 */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
-            {error}
+        {/* ── 도축장 관리 탭 ── */}
+        {tab === TAB.PLANT && (
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-800">도축장 코드 관리</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                발급번호 앞 4자리 코드 → 도축장 명칭 매핑표
+              </p>
+            </div>
+            <PlantCodeManager
+              customMap={customCodeMap}
+              onChange={handleCodeMapChange}
+            />
           </div>
         )}
 
-        {/* ── STEP 0: 파일 업로드 ── */}
-        {step === STEP.UPLOAD && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FileUploader
-                label="출고리스트 (.xlsx)"
-                accept=".xlsx,.xls"
-                file={shipmentFile}
-                onFile={setShipmentFile}
-              />
-              <FileUploader
-                label="원패스 (.xls/.xlsx)"
-                accept=".xls,.xlsx"
-                file={onepassFile}
-                onFile={setOnepassFile}
-              />
-            </div>
+        {/* ── 자동 연동 탭 ── */}
+        {tab === TAB.MAIN && (
+          <>
+            {/* Step 인디케이터 */}
+            <StepIndicator current={step} />
 
-            {/* 안내 */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-800 space-y-1">
-              <p className="font-semibold">✅ 파일 준비 안내</p>
-              <p>• 원패스 파일: <strong>일반 / 무항</strong> 컬럼과 <strong>묶음번호</strong> 컬럼이 추가된 파일을 사용하세요.</p>
-              <p>• 원패스 파일의 시트 이름에 <strong>"도축"</strong> 또는 <strong>"냉장"</strong>이 포함되어야 합니다.</p>
-              <p>• 처리 대상: <code className="bg-blue-100 px-1 rounded">닭고기</code>, <code className="bg-blue-100 px-1 rounded">무항생제 닭고기</code> 포함 항목</p>
-            </div>
+            {/* 오류 메시지 */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+                {error}
+              </div>
+            )}
 
-            <button
-              onClick={handleProcess}
-              disabled={!shipmentFile || !onepassFile}
-              className="w-full py-3 rounded-xl font-semibold text-white transition-colors
-                bg-orange-600 hover:bg-orange-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              자동 연동 시작
-            </button>
-          </div>
-        )}
+            {/* ── STEP 0: 파일 업로드 ── */}
+            {step === STEP.UPLOAD && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FileUploader
+                    label="출고리스트 (.xlsx)"
+                    accept=".xlsx,.xls"
+                    file={shipmentFile}
+                    onFile={setShipmentFile}
+                  />
+                  <FileUploader
+                    label="원패스 (.xls/.xlsx)"
+                    accept=".xls,.xlsx"
+                    file={onepassFile}
+                    onFile={setOnepassFile}
+                  />
+                </div>
 
-        {/* ── STEP 1: 처리 중 ── */}
-        {step === STEP.PROCESSING && (
-          <div className="text-center py-16 space-y-4">
-            <div className="inline-block w-12 h-12 border-4 border-blue-200 border-t-blue-900 rounded-full animate-spin" />
-            <p className="text-gray-600 font-medium">원패스 데이터와 매칭 중입니다…</p>
-            <p className="text-xs text-gray-400">파일 크기에 따라 수 초~수십 초 소요될 수 있습니다.</p>
-          </div>
-        )}
+                {/* 안내 */}
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-xs text-blue-800 space-y-1">
+                  <p className="font-semibold">파일 준비 안내</p>
+                  <p>• 원패스 파일: <strong>일반 / 무항</strong> 컬럼과 <strong>묶음번호</strong> 컬럼이 추가된 파일을 사용하세요.</p>
+                  <p>• 원패스 파일의 시트 이름에 <strong>"도축"</strong> 또는 <strong>"냉장"</strong>이 포함되어야 합니다.</p>
+                  <p>• 처리 대상: <code className="bg-blue-100 px-1 rounded">닭고기</code>, <code className="bg-blue-100 px-1 rounded">무항생제 닭고기</code> 포함 항목</p>
+                </div>
 
-        {/* ── STEP 2: 완료 ── */}
-        {step === STEP.DONE && stats && (
-          <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <h2 className="text-base font-bold text-gray-800 mb-4">처리 결과</h2>
-              <ResultSummary
-                stats={stats}
-                warnings={warnings}
-                onDownload={handleDownload}
-                onReset={handleReset}
-              />
-            </div>
-          </div>
+                <button
+                  onClick={handleProcess}
+                  disabled={!shipmentFile || !onepassFile}
+                  className="w-full py-3 rounded-xl font-semibold text-white transition-colors
+                    bg-orange-600 hover:bg-orange-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  자동 연동 시작
+                </button>
+              </div>
+            )}
+
+            {/* ── STEP 1: 처리 중 ── */}
+            {step === STEP.PROCESSING && (
+              <div className="text-center py-16 space-y-4">
+                <div className="inline-block w-12 h-12 border-4 border-blue-200 border-t-blue-900 rounded-full animate-spin" />
+                <p className="text-gray-600 font-medium">원패스 데이터와 매칭 중입니다…</p>
+                <p className="text-xs text-gray-400">파일 크기에 따라 수 초~수십 초 소요될 수 있습니다.</p>
+              </div>
+            )}
+
+            {/* ── STEP 2: 완료 ── */}
+            {step === STEP.DONE && stats && (
+              <div className="space-y-4">
+                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+                  <h2 className="text-base font-bold text-gray-800 mb-4">처리 결과</h2>
+                  <ResultSummary
+                    stats={stats}
+                    warnings={warnings}
+                    onDownload={handleDownload}
+                    onReset={handleReset}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
       <footer className="text-center text-xs text-gray-400 py-6">
-        출고리스트-원패스 자동 연동 시스템 v1.1
+        출고리스트-원패스 자동 연동 시스템 v1.2
       </footer>
     </div>
   );

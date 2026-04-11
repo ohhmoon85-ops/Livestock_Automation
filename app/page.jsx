@@ -23,7 +23,7 @@ export default function Home() {
 
   // 디버그 탭
   const [debugFile, setDebugFile] = useState(null);
-  const [debugRows, setDebugRows] = useState(null);
+  const [debugSheets, setDebugSheets] = useState(null);
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState("");
 
@@ -31,14 +31,14 @@ export default function Home() {
     if (!debugFile) return;
     setDebugLoading(true);
     setDebugError("");
-    setDebugRows(null);
+    setDebugSheets(null);
     try {
       const form = new FormData();
       form.append("onepass", debugFile);
       const res = await fetch("/api/debug", { method: "POST", body: form });
       const body = await res.json();
       if (!res.ok || !body.ok) throw new Error(body.error || "오류");
-      setDebugRows(body.rows);
+      setDebugSheets(body.sheets);
     } catch (e) {
       setDebugError(e.message);
     } finally {
@@ -221,37 +221,95 @@ export default function Home() {
                 {debugError}
               </div>
             )}
-            {debugRows && (
-              <div className="overflow-x-auto">
-                <p className="text-xs text-gray-500 mb-2">총 {debugRows.length}개 행 파싱됨</p>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100 text-gray-700">
-                      <th className="border border-gray-200 px-2 py-1 text-left">시트</th>
-                      <th className="border border-gray-200 px-2 py-1 text-left">발급번호</th>
-                      <th className="border border-gray-200 px-2 py-1 text-left">발급일시</th>
-                      <th className="border border-gray-200 px-2 py-1 text-left">부위</th>
-                      <th className="border border-gray-200 px-2 py-1 text-center font-bold">분류</th>
-                      <th className="border border-gray-200 px-2 py-1 text-right">발급가능량</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {debugRows.map((r, i) => (
-                      <tr key={i} className={r.분류 === "무항" ? "bg-yellow-50" : r.분류 === "일반" ? "bg-green-50" : "bg-red-50"}>
-                        <td className="border border-gray-200 px-2 py-1">{r.시트}</td>
-                        <td className="border border-gray-200 px-2 py-1 font-mono">{r.발급번호}</td>
-                        <td className="border border-gray-200 px-2 py-1">{r.발급일시Raw}</td>
-                        <td className="border border-gray-200 px-2 py-1">{r.부위}</td>
-                        <td className={`border border-gray-200 px-2 py-1 text-center font-bold ${
-                          r.분류 === "무항" ? "text-yellow-700" : r.분류 === "일반" ? "text-green-700" : "text-red-500"
-                        }`}>{r.분류 || "❌미감지"}</td>
-                        <td className="border border-gray-200 px-2 py-1 text-right">{r.발급가능량}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {debugSheets && debugSheets.map((sheet, si) => (
+              <div key={si} className="space-y-3">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <p className="text-xs font-bold text-gray-700">시트: {sheet.sheetName}</p>
+                  {sheet.error ? (
+                    <p className="text-xs text-red-500 mt-1">{sheet.error}</p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-gray-500 mt-1">
+                        헤더 행: {sheet.headerRowIndex}번째 행 /
+                        감지된 헤더: [{sheet.headers.filter(Boolean).join(", ")}]
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        컬럼 위치 — 부위:{sheet.컬럼감지.부위} / 발급번호:{sheet.컬럼감지.발급번호} /
+                        발급일시:{sheet.컬럼감지.발급일시} / 일반:{sheet.컬럼감지.일반} /
+                        무항:{sheet.컬럼감지.무항} / 단일:{sheet.컬럼감지.일반무항단일}
+                      </p>
+                      {sheet.sampleRawRows.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-blue-600 cursor-pointer">원시 데이터 샘플 (첫 5행)</summary>
+                          <div className="overflow-x-auto mt-1">
+                            <table className="text-xs border-collapse">
+                              <thead>
+                                <tr className="bg-blue-50">
+                                  <th className="border px-1 py-0.5">행</th>
+                                  <th className="border px-1 py-0.5">발급번호</th>
+                                  <th className="border px-1 py-0.5">발급일시</th>
+                                  <th className="border px-1 py-0.5">부위</th>
+                                  <th className="border px-1 py-0.5 bg-green-100">일반컬럼값</th>
+                                  <th className="border px-1 py-0.5 bg-yellow-100">무항컬럼값</th>
+                                  <th className="border px-1 py-0.5">단일컬럼값</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sheet.sampleRawRows.map((r, i) => (
+                                  <tr key={i}>
+                                    <td className="border px-1 py-0.5">{r.rowIdx}</td>
+                                    <td className="border px-1 py-0.5 font-mono">{r.발급번호_raw}</td>
+                                    <td className="border px-1 py-0.5">{r.발급일시_raw}</td>
+                                    <td className="border px-1 py-0.5">{r.부위_raw}</td>
+                                    <td className="border px-1 py-0.5 bg-green-50">[{r.일반_raw}]</td>
+                                    <td className="border px-1 py-0.5 bg-yellow-50">[{r.무항_raw}]</td>
+                                    <td className="border px-1 py-0.5">[{r.단일분류_raw}]</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </details>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {sheet.rows && sheet.rows.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <p className="text-xs text-gray-500 mb-1">파싱 결과: 총 {sheet.rows.length}개 행</p>
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 text-gray-700">
+                          <th className="border border-gray-200 px-2 py-1 text-left">발급번호</th>
+                          <th className="border border-gray-200 px-2 py-1 text-left">날짜</th>
+                          <th className="border border-gray-200 px-2 py-1 text-left">부위</th>
+                          <th className="border border-gray-200 px-2 py-1 text-center font-bold">분류</th>
+                          <th className="border border-gray-200 px-2 py-1 bg-green-50">일반값</th>
+                          <th className="border border-gray-200 px-2 py-1 bg-yellow-50">무항값</th>
+                          <th className="border border-gray-200 px-2 py-1 text-right">가능량</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sheet.rows.map((r, i) => (
+                          <tr key={i} className={r.분류 === "무항" ? "bg-yellow-50" : r.분류 === "일반" ? "bg-green-50" : "bg-red-50"}>
+                            <td className="border border-gray-200 px-2 py-1 font-mono">{r.발급번호}</td>
+                            <td className="border border-gray-200 px-2 py-1">{r.발급일시}</td>
+                            <td className="border border-gray-200 px-2 py-1">{r.부위}</td>
+                            <td className={`border border-gray-200 px-2 py-1 text-center font-bold ${
+                              r.분류 === "무항" ? "text-yellow-700" : r.분류 === "일반" ? "text-green-700" : "text-red-500"
+                            }`}>{r.분류 || "❌미감지"}</td>
+                            <td className="border border-gray-200 px-2 py-1 bg-green-50 text-center">[{r.일반컬럼값}]</td>
+                            <td className="border border-gray-200 px-2 py-1 bg-yellow-50 text-center">[{r.무항컬럼값}]</td>
+                            <td className="border border-gray-200 px-2 py-1 text-right">{r.발급가능량}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
         )}
 

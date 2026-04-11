@@ -6,7 +6,7 @@ import ResultSummary from "@/components/ResultSummary";
 import PlantCodeManager from "@/components/PlantCodeManager";
 
 const STEP = { UPLOAD: 0, PROCESSING: 1, DONE: 2 };
-const TAB = { MAIN: "main", PLANT: "plant" };
+const TAB = { MAIN: "main", PLANT: "plant", DEBUG: "debug" };
 
 export default function Home() {
   const [shipmentFile, setShipmentFile] = useState(null);
@@ -20,6 +20,31 @@ export default function Home() {
 
   // 활성 탭
   const [tab, setTab] = useState(TAB.MAIN);
+
+  // 디버그 탭
+  const [debugFile, setDebugFile] = useState(null);
+  const [debugRows, setDebugRows] = useState(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState("");
+
+  const handleDebug = async () => {
+    if (!debugFile) return;
+    setDebugLoading(true);
+    setDebugError("");
+    setDebugRows(null);
+    try {
+      const form = new FormData();
+      form.append("onepass", debugFile);
+      const res = await fetch("/api/debug", { method: "POST", body: form });
+      const body = await res.json();
+      if (!res.ok || !body.ok) throw new Error(body.error || "오류");
+      setDebugRows(body.rows);
+    } catch (e) {
+      setDebugError(e.message);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
 
   // 도축장 코드 맵 (localStorage 저장)
   const [customCodeMap, setCustomCodeMap] = useState({});
@@ -137,6 +162,16 @@ export default function Home() {
           >
             도축장 관리
           </button>
+          <button
+            onClick={() => setTab(TAB.DEBUG)}
+            className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === TAB.DEBUG
+                ? "border-blue-900 text-blue-900"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            파싱 확인
+          </button>
         </div>
       </div>
 
@@ -155,6 +190,68 @@ export default function Home() {
               customMap={customCodeMap}
               onChange={handleCodeMapChange}
             />
+          </div>
+        )}
+
+        {/* ── 파싱 확인 탭 ── */}
+        {tab === TAB.DEBUG && (
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-800">원패스 파싱 확인</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                원패스 파일을 올리면 각 행의 분류(일반/무항), 발급일시, 부위 등이 어떻게 인식되는지 확인합니다.
+              </p>
+            </div>
+            <FileUploader
+              label="원패스 파일 (.xls/.xlsx)"
+              accept=".xls,.xlsx"
+              file={debugFile}
+              onFile={setDebugFile}
+            />
+            <button
+              onClick={handleDebug}
+              disabled={!debugFile || debugLoading}
+              className="w-full py-2 rounded-xl font-semibold text-white transition-colors
+                bg-blue-700 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm"
+            >
+              {debugLoading ? "분석 중…" : "파싱 결과 확인"}
+            </button>
+            {debugError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+                {debugError}
+              </div>
+            )}
+            {debugRows && (
+              <div className="overflow-x-auto">
+                <p className="text-xs text-gray-500 mb-2">총 {debugRows.length}개 행 파싱됨</p>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700">
+                      <th className="border border-gray-200 px-2 py-1 text-left">시트</th>
+                      <th className="border border-gray-200 px-2 py-1 text-left">발급번호</th>
+                      <th className="border border-gray-200 px-2 py-1 text-left">발급일시</th>
+                      <th className="border border-gray-200 px-2 py-1 text-left">부위</th>
+                      <th className="border border-gray-200 px-2 py-1 text-center font-bold">분류</th>
+                      <th className="border border-gray-200 px-2 py-1 text-right">발급가능량</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debugRows.map((r, i) => (
+                      <tr key={i} className={r.분류 === "무항" ? "bg-yellow-50" : r.분류 === "일반" ? "bg-green-50" : "bg-red-50"}>
+                        <td className="border border-gray-200 px-2 py-1">{r.시트}</td>
+                        <td className="border border-gray-200 px-2 py-1 font-mono">{r.발급번호}</td>
+                        <td className="border border-gray-200 px-2 py-1">{r.발급일시Raw}</td>
+                        <td className="border border-gray-200 px-2 py-1">{r.부위}</td>
+                        <td className={`border border-gray-200 px-2 py-1 text-center font-bold ${
+                          r.분류 === "무항" ? "text-yellow-700" : r.분류 === "일반" ? "text-green-700" : "text-red-500"
+                        }`}>{r.분류 || "❌미감지"}</td>
+                        <td className="border border-gray-200 px-2 py-1 text-right">{r.발급가능량}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

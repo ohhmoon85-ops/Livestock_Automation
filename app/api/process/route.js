@@ -55,6 +55,7 @@ export async function POST(request) {
 
     let allOnepassRows = [];
     const sheetErrors  = [];
+    let globalIdx = 0;  // 버그2·3 수정: 시트를 넘나드는 전역 행 순서 추적
 
     for (const sheetName of opWb.SheetNames) {
       const raw = XLSX.utils.sheet_to_json(
@@ -63,6 +64,7 @@ export async function POST(request) {
       );
       try {
         const rows = parseOnepass(raw, sheetName);
+        rows.forEach((r) => { r._globalIdx = globalIdx++; });
         allOnepassRows = allOnepassRows.concat(rows);
       } catch (e) {
         sheetErrors.push(`[${sheetName}] ${e.message}`);

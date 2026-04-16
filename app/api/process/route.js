@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { parseShipment } from "@/lib/parseShipment";
+import { parseShipment, parseSlaughterhouseMap } from "@/lib/parseShipment";
 import { parseOnepass } from "@/lib/parseOnepass";
 import { matchAll } from "@/lib/matchEngine";
 import { generateOutput } from "@/lib/generateOutput";
@@ -82,11 +82,23 @@ export async function POST(request) {
       );
     }
 
-    // ── 사용자 정의 도축장 코드 맵 ───────────────────────────
+    // ── 도축장 코드 맵: 함수 시트(파일) + 사용자 정의 순으로 병합 ──
+    // 파일 기반 맵을 먼저 읽고, 사용자 정의가 덮어쓰도록 함
     let customCodeMap = {};
     const codeMapStr = formData.get("codeMap");
     if (codeMapStr) {
       try { customCodeMap = JSON.parse(codeMapStr); } catch {}
+    }
+
+    const funcSheetName = shipWb.SheetNames.find((n) => n.includes("함수"));
+    if (funcSheetName) {
+      const funcRaw = XLSX.utils.sheet_to_json(
+        shipWb.Sheets[funcSheetName],
+        { header: 1, defval: "" }
+      );
+      const fileCodeMap = parseSlaughterhouseMap(funcRaw);
+      // 파일 코드 맵이 기본값, 사용자 정의가 우선
+      customCodeMap = { ...fileCodeMap, ...customCodeMap };
     }
 
     // ── 매칭 ─────────────────────────────────────────────────

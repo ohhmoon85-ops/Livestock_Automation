@@ -349,7 +349,7 @@ export default function Home() {
                   <p className="font-semibold">파일 준비 안내</p>
                   <p>• 원패스 파일: <strong>일반 / 무항</strong> 컬럼과 <strong>묶음번호</strong> 컬럼이 추가된 파일을 사용하세요.</p>
                   <p>• 원패스 파일의 시트 이름에 <strong>"도축"</strong> 또는 <strong>"냉장"</strong>이 포함되어야 합니다.</p>
-                  <p>• 처리 대상: <code className="bg-blue-100 px-1 rounded">닭고기</code>, <code className="bg-blue-100 px-1 rounded">무항생제 닭고기</code> 포함 항목</p>
+                  <p>• 처리 대상: <code className="bg-blue-100 px-1 rounded">돈육(돼지고기)</code>, <code className="bg-blue-100 px-1 rounded">무항생제 돈육</code> 포함 항목</p>
                 </div>
 
                 <button

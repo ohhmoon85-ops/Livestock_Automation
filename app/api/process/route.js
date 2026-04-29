@@ -105,7 +105,7 @@ export async function POST(request) {
     const { results, warnings } = matchAll(shipmentRows, allOnepassRows, customCodeMap);
 
     // ── 출력 파일 생성 ────────────────────────────────────────
-    const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex);
+    const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex, shipWb);
 
     // ── 통계 ─────────────────────────────────────────────────
     const total   = results.filter((r) => !r._skipped).length;

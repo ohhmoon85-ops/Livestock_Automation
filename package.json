@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test": "jest"
+    "lint": "eslint"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -17,13 +16,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@babel/core": "^7",
-    "@babel/preset-env": "^7",
     "@tailwindcss/postcss": "^4",
-    "babel-jest": "^29",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
-    "jest": "^29",
     "tailwindcss": "^4"
   }
 }

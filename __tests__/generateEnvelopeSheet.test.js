@@ -8,6 +8,7 @@ import {
   joinMealCodes,
   calcWidth,
   pickFontSize,
+  getAdaptiveSize,
   generateEnvelopeSheet,
 } from "../lib/generateEnvelopeSheet.js";
 
@@ -312,4 +313,102 @@ test("T11: 5월_4일 완성본 통합 시나리오", async () => {
   });
   const outputInspSheet = wb.getWorksheet("검수서");
   expect(outputInspSheet.rowCount).toBe(inputRows.length);
+});
+
+// ── T12: getAdaptiveSize 테이블 검증 ─────────────────────────────────────────
+test("T12: getAdaptiveSize 반환값 테이블", () => {
+  expect(getAdaptiveSize(4)).toEqual({ rowHeight: 70, schoolFont: 48, itemFontMax: 48 });
+  expect(getAdaptiveSize(5)).toEqual({ rowHeight: 52, schoolFont: 40, itemFontMax: 36 });
+  expect(getAdaptiveSize(6)).toEqual({ rowHeight: 44, schoolFont: 36, itemFontMax: 32 });
+  expect(getAdaptiveSize(7)).toEqual({ rowHeight: 38, schoolFont: 32, itemFontMax: 28 });
+  expect(getAdaptiveSize(8)).toEqual({ rowHeight: 33, schoolFont: 28, itemFontMax: 24 });
+  // 4줄 이하는 동일 반환
+  expect(getAdaptiveSize(1)).toEqual({ rowHeight: 70, schoolFont: 48, itemFontMax: 48 });
+  expect(getAdaptiveSize(3)).toEqual({ rowHeight: 70, schoolFont: 48, itemFontMax: 48 });
+});
+
+// ── T13: 5월 6일 테스트 파일 — 적응형 축소 통합 검증 ─────────────────────────
+test("T13: 5월 6일 테스트 파일 적응형 축소", async () => {
+  const filePath = path.resolve(
+    __dirname,
+    "../../5월 6일(수) 출고리스트_봉투 테스트.xlsx"
+  );
+
+  const xlsxWb = XLSX.read(require("fs").readFileSync(filePath), {
+    type: "buffer",
+    cellDates: true,
+  });
+
+  const wb = new ExcelJS.Workbook();
+  if (xlsxWb.Sheets["검수서"]) {
+    const inspSheet = wb.addWorksheet("검수서");
+    const rows = XLSX.utils.sheet_to_json(xlsxWb.Sheets["검수서"], {
+      header: 1,
+      defval: null,
+    });
+    for (const row of rows) inspSheet.addRow(row);
+  }
+  wb.addWorksheet("매출 시트");
+  generateEnvelopeSheet(wb);
+
+  const envSheet = wb.getWorksheet("봉투");
+  expect(envSheet).toBeTruthy();
+
+  // 그룹별 행 번호 수집 { schoolName -> [rowNums] }
+  const groupMap = {};
+  let currentSchool = null;
+  envSheet.eachRow((row, rowNum) => {
+    if (rowNum < 2) return;
+    const b = row.getCell("B").value;
+    const c = row.getCell("C").value;
+    const isSchoolRow =
+      b && typeof b === "string" && b.trim() !== "" &&
+      (c === null || c === "" || c === undefined);
+    if (isSchoolRow) {
+      currentSchool = b.trim();
+      groupMap[currentSchool] = [rowNum];
+    } else if (currentSchool && b) {
+      groupMap[currentSchool].push(rowNum);
+    }
+  });
+
+  // ── 안성고등학교: 총 5줄 (학교명 + 4품목) → rowHeight=52, schoolFont=40, items≤36 ──
+  const anseong = groupMap["안성고등학교"];
+  expect(anseong).toBeDefined();
+  expect(anseong.length).toBe(5);
+  for (const rowNum of anseong) {
+    expect(envSheet.getRow(rowNum).height).toBe(52);
+  }
+  expect(envSheet.getRow(anseong[0]).getCell("B").font.size).toBe(40);
+  for (const rowNum of anseong.slice(1)) {
+    expect(envSheet.getRow(rowNum).getCell("B").font.size).toBeLessThanOrEqual(36);
+    expect(envSheet.getRow(rowNum).getCell("C").font.size).toBe(36);
+    expect(envSheet.getRow(rowNum).getCell("D").font.size).toBe(36);
+  }
+
+  // ── 자곡초등학교: 총 6줄 (학교명 + 5품목) → rowHeight=44, schoolFont=36, items≤32 ──
+  const jagok = groupMap["자곡초등학교"];
+  expect(jagok).toBeDefined();
+  expect(jagok.length).toBe(6);
+  for (const rowNum of jagok) {
+    expect(envSheet.getRow(rowNum).height).toBe(44);
+  }
+  expect(envSheet.getRow(jagok[0]).getCell("B").font.size).toBe(36);
+  for (const rowNum of jagok.slice(1)) {
+    expect(envSheet.getRow(rowNum).getCell("B").font.size).toBeLessThanOrEqual(32);
+    expect(envSheet.getRow(rowNum).getCell("C").font.size).toBe(32);
+    expect(envSheet.getRow(rowNum).getCell("D").font.size).toBe(32);
+  }
+
+  // ── 4줄 이하 그룹 샘플: rowHeight=70, C/D itemFontMax=48 변경 없음 ──
+  const smallGroups = Object.entries(groupMap).filter(([, rows]) => rows.length <= 4);
+  expect(smallGroups.length).toBeGreaterThan(0);
+  const [, sampleRows] = smallGroups[0];
+  for (const rowNum of sampleRows) {
+    expect(envSheet.getRow(rowNum).height).toBe(70);
+  }
+  for (const rowNum of sampleRows.slice(1)) {
+    expect(envSheet.getRow(rowNum).getCell("C").font.size).toBe(48);
+    expect(envSheet.getRow(rowNum).getCell("D").font.size).toBe(48);
+  }
 });

@@ -5,7 +5,6 @@ import {
   cleanSchoolName,
   extractMealCode,
   convertBrackets,
-  joinMealCodes,
   calcWidth,
   pickFontSize,
   getAdaptiveSize,
@@ -41,16 +40,9 @@ test("T3: convertBrackets 4개 케이스", () => {
   expect(convertBrackets("무항생제계육[넓적다리살/껍질무]")).toBe("무항생제계육(넓적다리살/껍질무)");
 });
 
-// ── T4: joinMealCodes ─────────────────────────────────────────────────────
-test("T4: joinMealCodes 정렬 순서", () => {
-  expect(joinMealCodes(new Set(["조", "석"]))).toBe("조/석");
-  expect(joinMealCodes(new Set(["조", "중", "석"]))).toBe("조/중/석");
-  expect(joinMealCodes(new Set(["중"]))).toBe("중");
-  expect(joinMealCodes(new Set([]))).toBe("");
-});
 
-// ── T5: 그룹화 + 수량 합산 + mealCode union ───────────────────────────────
-test("T5: 동일 학교·동일 품목 수량 합산 및 식사코드 union", () => {
+// ── T5: 그룹화 — 합산 없이 검수서 행 1:1 보존 ────────────────────────────
+test("T5: 동일 학교·동일 품목이라도 합산하지 않고 별도 행 보존", () => {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("검수서");
   ws.addRow(["날짜"]);
@@ -65,10 +57,15 @@ test("T5: 동일 학교·동일 품목 수량 합산 및 식사코드 union", ()
 
   // 학교명 행: 2행
   expect(envSheet.getRow(2).getCell("B").value).toBe("선화예술고등학교");
-  // 품목 행: 3행 — 수량 3+4=7, 식사코드 조/중
+
+  // 품목 행 2개 별도 보존 (합산되어 1행이 아님)
   expect(envSheet.getRow(3).getCell("B").value).toBe("무항생제돈육(앞다리살)");
-  expect(envSheet.getRow(3).getCell("C").value).toBe(7);
-  expect(envSheet.getRow(3).getCell("D").value).toBe("조/중");
+  expect(envSheet.getRow(3).getCell("C").value).toBe(3);
+  expect(envSheet.getRow(3).getCell("D").value).toBe("조");
+
+  expect(envSheet.getRow(4).getCell("B").value).toBe("무항생제돈육(앞다리살)");
+  expect(envSheet.getRow(4).getCell("C").value).toBe(4);
+  expect(envSheet.getRow(4).getCell("D").value).toBe("중");
 });
 
 // ── T6: 가나다순 정렬 ─────────────────────────────────────────────────────
@@ -313,6 +310,142 @@ test("T11: 5월_4일 완성본 통합 시나리오", async () => {
   });
   const outputInspSheet = wb.getWorksheet("검수서");
   expect(outputInspSheet.rowCount).toBe(inputRows.length);
+});
+
+// ── T14: 영수그린(우신고) 식사구분 분리 케이스 — 검수서 3행 → 봉투 3행 ──────
+test("T14: 영수그린(우신고) 식사구분·품목 혼재 3행 보존", () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("검수서");
+  ws.addRow(["날짜"]);
+  ws.addRow(["담당자", "매출처(고객)명", "품목명", "규격", "수량"]);
+  ws.addRow(["", "영수그린(우신고)-석식", "무항생제돈육[뒷다리]", "", 6]);
+  ws.addRow(["", "영수그린(우신고)-중식", "무항생제돈육[뒷다리]", "", 125]);
+  ws.addRow(["", "영수그린(우신고)-중식", "수입우[양지]",         "", 12]);
+
+  generateEnvelopeSheet(wb);
+  const envSheet = wb.getWorksheet("봉투");
+
+  // 학교명 행
+  expect(envSheet.getRow(2).getCell("B").value).toBe("영수그린(우신고)");
+  expect(envSheet.getRow(2).getCell("C").value).toBe("");
+
+  // 검수서 출현 순서 그대로 3행
+  expect(envSheet.getRow(3).getCell("B").value).toBe("무항생제돈육(뒷다리)");
+  expect(envSheet.getRow(3).getCell("C").value).toBe(6);
+  expect(envSheet.getRow(3).getCell("D").value).toBe("석");
+
+  expect(envSheet.getRow(4).getCell("B").value).toBe("무항생제돈육(뒷다리)");
+  expect(envSheet.getRow(4).getCell("C").value).toBe(125);
+  expect(envSheet.getRow(4).getCell("D").value).toBe("중");
+
+  expect(envSheet.getRow(5).getCell("B").value).toBe("수입우(양지)");
+  expect(envSheet.getRow(5).getCell("C").value).toBe(12);
+  expect(envSheet.getRow(5).getCell("D").value).toBe("중");
+});
+
+// ── T15: 같은 품목·식사구분 없음·다중 발주 — 합산 금지 ──────────────────────
+test("T15: 같은 품목 식사구분 없음 다중 발주는 합산하지 않고 2행 보존", () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("검수서");
+  ws.addRow(["날짜"]);
+  ws.addRow(["담당자", "매출처(고객)명", "품목명", "규격", "수량"]);
+  ws.addRow(["", "○○학교", "돈육[뒷다리]", "불고기", 100]);
+  ws.addRow(["", "○○학교", "돈육[뒷다리]", "카레용",  10]);
+
+  generateEnvelopeSheet(wb);
+  const envSheet = wb.getWorksheet("봉투");
+
+  // 합산(110)이 아닌 100 / 10 으로 분리 보존
+  expect(envSheet.getRow(3).getCell("B").value).toBe("돈육(뒷다리)");
+  expect(envSheet.getRow(3).getCell("C").value).toBe(100);
+  expect(envSheet.getRow(3).getCell("D").value).toBe("");
+
+  expect(envSheet.getRow(4).getCell("B").value).toBe("돈육(뒷다리)");
+  expect(envSheet.getRow(4).getCell("C").value).toBe(10);
+  expect(envSheet.getRow(4).getCell("D").value).toBe("");
+});
+
+// ── T16: 5월 6일 파일 — 검수서 행 수 = 봉투 품목 행 수 (1:1) ───────────────
+test("T16: 5월 6일 파일 검수서-봉투 1:1 매핑 + 영수그린 순서 보존", async () => {
+  const filePath = path.resolve(
+    __dirname,
+    "../../5월 6일(수) 출고리스트_봉투 테스트.xlsx"
+  );
+
+  const xlsxWb = XLSX.read(require("fs").readFileSync(filePath), {
+    type: "buffer",
+    cellDates: true,
+  });
+
+  const wb = new ExcelJS.Workbook();
+  if (xlsxWb.Sheets["검수서"]) {
+    const inspSheet = wb.addWorksheet("검수서");
+    const rows2d = XLSX.utils.sheet_to_json(xlsxWb.Sheets["검수서"], {
+      header: 1,
+      defval: null,
+    });
+    for (const r of rows2d) inspSheet.addRow(r);
+  }
+  wb.addWorksheet("매출 시트");
+  generateEnvelopeSheet(wb);
+
+  const envSheet = wb.getWorksheet("봉투");
+  expect(envSheet).toBeTruthy();
+
+  // a. 봉투 품목 행 수 (C 값이 숫자인 행)
+  let envItemCount = 0;
+  envSheet.eachRow((row, rowNum) => {
+    if (rowNum < 2) return;
+    if (typeof row.getCell("C").value === "number") envItemCount++;
+  });
+
+  // b. 검수서 유효 데이터 행 수 (수량 숫자인 행)
+  const srcRows = XLSX.utils.sheet_to_json(xlsxWb.Sheets["검수서"], {
+    header: 1,
+    defval: "",
+  });
+  let srcHeaderIdx = -1;
+  let srcQtyCol = -1;
+  for (let i = 0; i < srcRows.length; i++) {
+    const qtyIdx = srcRows[i].findIndex((v) => String(v ?? "").trim() === "수량");
+    if (qtyIdx !== -1) { srcHeaderIdx = i; srcQtyCol = qtyIdx; break; }
+  }
+  let srcDataCount = 0;
+  for (let i = srcHeaderIdx + 1; i < srcRows.length; i++) {
+    const v = srcRows[i][srcQtyCol];
+    if (typeof v === "number" && !isNaN(v)) srcDataCount++;
+  }
+
+  // a === b: 1:1 일치
+  expect(envItemCount).toBe(srcDataCount);
+
+  // c. 영수그린(우신고) 봉투 3행 — 출현 순서 보존
+  const groupMap = {};
+  let curSchool = null;
+  envSheet.eachRow((row, rowNum) => {
+    if (rowNum < 2) return;
+    const b = row.getCell("B").value;
+    const c = row.getCell("C").value;
+    const isSchool =
+      b && typeof b === "string" && b.trim() !== "" &&
+      (c === null || c === "" || c === undefined);
+    if (isSchool) {
+      curSchool = b.trim();
+      groupMap[curSchool] = [];
+    } else if (curSchool && b) {
+      groupMap[curSchool].push({
+        b: row.getCell("B").value,
+        c: row.getCell("C").value,
+        d: row.getCell("D").value,
+      });
+    }
+  });
+
+  const usin = groupMap["영수그린(우신고)"];
+  expect(usin).toBeDefined();
+  expect(usin.length).toBe(2);
+  expect(usin[0]).toMatchObject({ b: "수입우(양지)",         c: 3,  d: "석" });
+  expect(usin[1]).toMatchObject({ b: "무항생제돈육(뒷다리)", c: 25, d: "중" });
 });
 
 // ── T12: getAdaptiveSize 테이블 검증 ─────────────────────────────────────────

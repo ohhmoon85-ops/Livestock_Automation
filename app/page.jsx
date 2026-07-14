@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import * as XLSX from "xlsx";
 import FileUploader from "@/components/FileUploader";
 import ResultSummary from "@/components/ResultSummary";
 import PlantCodeManager from "@/components/PlantCodeManager";
+import { parseShipment, parseSlaughterhouseMap } from "@/lib/parseShipment";
+import { parseOnepass } from "@/lib/parseOnepass";
+import { matchAll } from "@/lib/matchEngine";
+import { generateOutput } from "@/lib/generateOutput";
 
 const STEP = { UPLOAD: 0, PROCESSING: 1, DONE: 2 };
 const TAB = { MAIN: "main", PLANT: "plant", DEBUG: "debug" };
@@ -111,31 +116,95 @@ export default function Home() {
     setStep(STEP.PROCESSING);
 
     try {
-      const form = new FormData();
-      form.append("shipment", shipmentFile);
-      form.append("onepass", onepassFile);
-      form.append("codeMap", JSON.stringify(customCodeMap));
+      // 1) 파일을 ArrayBuffer로 (병렬)
+      const [shipAb, opAb] = await Promise.all([
+        shipmentFile.arrayBuffer(),
+        onepassFile.arrayBuffer(),
+      ]);
 
-      const res = await fetch("/api/process", { method: "POST", body: form });
-      const body = await readJsonOrThrow(res);
+      // 2) xlsx 파싱
+      const shipWb = XLSX.read(shipAb, { type: "array", cellDates: true });
+      const opWb   = XLSX.read(opAb,   { type: "array", cellDates: true });
 
-      setResultFilename(body.filename || "출고리스트_완성.xlsx");
-      setStats(body.stats ?? {});
+      const shipSheetName =
+        shipWb.SheetNames.find((n) => n.includes("매출")) ?? shipWb.SheetNames[0];
+      const shipRaw = XLSX.utils.sheet_to_json(
+        shipWb.Sheets[shipSheetName],
+        { header: 1, defval: "" }
+      );
+
+      // 3) 출고리스트 파싱
+      let shipmentRows, headerRowIndex;
+      try {
+        ({ rows: shipmentRows, headerRowIndex } = parseShipment(shipRaw));
+      } catch (e) {
+        throw new Error(e.message);
+      }
+
+      // 4) 원패스 파싱 (전 시트 합산 + 전역 행 순서)
+      let allOnepassRows = [];
+      const sheetErrors  = [];
+      let globalIdx = 0;
+      for (const sheetName of opWb.SheetNames) {
+        const raw = XLSX.utils.sheet_to_json(
+          opWb.Sheets[sheetName],
+          { header: 1, defval: "" }
+        );
+        try {
+          const rows = parseOnepass(raw, sheetName);
+          rows.forEach((r) => { r._globalIdx = globalIdx++; });
+          allOnepassRows = allOnepassRows.concat(rows);
+        } catch (e) {
+          sheetErrors.push(`[${sheetName}] ${e.message}`);
+        }
+      }
+
+      if (allOnepassRows.length === 0) {
+        throw new Error(
+          "원패스 파일에서 유효한 데이터를 찾을 수 없습니다." +
+            (sheetErrors.length ? "\n" + sheetErrors.join("\n") : "")
+        );
+      }
+
+      // 5) 도축장 코드 맵 병합 (파일 함수 시트가 기본값, 사용자 정의가 우선)
+      let codeMap = { ...customCodeMap };
+      const funcSheetName = shipWb.SheetNames.find((n) => n.includes("함수"));
+      if (funcSheetName) {
+        const funcRaw = XLSX.utils.sheet_to_json(
+          shipWb.Sheets[funcSheetName],
+          { header: 1, defval: "" }
+        );
+        const fileCodeMap = parseSlaughterhouseMap(funcRaw);
+        codeMap = { ...fileCodeMap, ...customCodeMap };
+      }
+
+      // 6) 매칭
+      const { results, warnings: matchWarnings } =
+        matchAll(shipmentRows, allOnepassRows, codeMap);
+
+      // 7) 출력 xlsx 생성 (ExcelJS Buffer / Uint8Array)
+      const outputBuffer = await generateOutput(shipRaw, results, headerRowIndex, shipWb);
+
+      // 8) 통계
+      const total   = results.filter((r) => !r._skipped).length;
+      const success = results.filter((r) => r._matched).length;
+      const warn    = matchWarnings.length;
+      const skipped = results.filter((r) => r._skipped).length;
+
+      // 9) Blob 준비
+      const blob = new Blob([outputBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      setResultFilename(shipmentFile.name || "출고리스트_완성.xlsx");
+      setStats({ total, success, warn, skipped });
       setWarnings(
-        (body.warnings ?? []).map((w) => ({
-          품목명: w.item,
-          수량: w.qty,
+        matchWarnings.slice(0, 100).map((w) => ({
+          품목명: w.row?.품목명 ?? "",
+          수량:   w.row?.수량   ?? "",
           reason: w.reason,
         }))
       );
-
-      // base64 → Blob 변환
-      const binary = atob(body.file);
-      const bytes  = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
       setResultBlob(blob);
       setStep(STEP.DONE);
     } catch (e) {

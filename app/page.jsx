@@ -8,6 +8,49 @@ import PlantCodeManager from "@/components/PlantCodeManager";
 const STEP = { UPLOAD: 0, PROCESSING: 1, DONE: 2 };
 const TAB = { MAIN: "main", PLANT: "plant", DEBUG: "debug" };
 
+/**
+ * API 응답을 안전하게 JSON으로 읽는다.
+ * 서버 함수가 시간초과/메모리초과 등으로 죽으면 Vercel이 JSON이 아닌
+ * HTML 에러 페이지를 돌려주는데, 그대로 res.json() 하면
+ * "Unexpected token '<'..." 라는 암호 같은 오류가 뜬다.
+ * 여기서 상태 코드를 보고 사람이 읽을 수 있는 메시지로 바꿔 던진다.
+ */
+async function readJsonOrThrow(res) {
+  const contentType = res.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    const body = await res.json();
+    if (!res.ok || !body.ok) {
+      throw new Error(body.error || `서버 오류 (${res.status})`);
+    }
+    return body;
+  }
+
+  // JSON이 아닌 응답(HTML 에러 페이지 등) → 상태 코드로 안내 메시지 생성
+  await res.text().catch(() => "");
+
+  if (res.status === 504) {
+    throw new Error(
+      "서버 처리 시간이 초과되었습니다 (504). 잠시 후 다시 시도해주세요.\n" +
+        "계속 실패하면 파일 크기가 크거나 데이터가 많은 경우일 수 있습니다."
+    );
+  }
+  if (res.status === 413) {
+    throw new Error("업로드 파일 용량이 너무 큽니다 (413). 파일 크기를 줄여주세요.");
+  }
+  if (res.status === 404) {
+    throw new Error("요청 경로를 찾을 수 없습니다 (404). 배포 상태를 확인해주세요.");
+  }
+  if (res.status >= 500) {
+    throw new Error(
+      `서버 내부 오류가 발생했습니다 (${res.status}). 잠시 후 다시 시도해주세요.`
+    );
+  }
+  throw new Error(
+    `예상치 못한 응답을 받았습니다 (HTTP ${res.status}). 잠시 후 다시 시도해주세요.`
+  );
+}
+
 export default function Home() {
   const [shipmentFile, setShipmentFile] = useState(null);
   const [onepassFile, setOnepassFile] = useState(null);
@@ -36,8 +79,7 @@ export default function Home() {
       const form = new FormData();
       form.append("onepass", debugFile);
       const res = await fetch("/api/debug", { method: "POST", body: form });
-      const body = await res.json();
-      if (!res.ok || !body.ok) throw new Error(body.error || "오류");
+      const body = await readJsonOrThrow(res);
       setDebugSheets(body.sheets);
     } catch (e) {
       setDebugError(e.message);
@@ -75,11 +117,7 @@ export default function Home() {
       form.append("codeMap", JSON.stringify(customCodeMap));
 
       const res = await fetch("/api/process", { method: "POST", body: form });
-      const body = await res.json();
-
-      if (!res.ok || !body.ok) {
-        throw new Error(body.error || "서버 오류");
-      }
+      const body = await readJsonOrThrow(res);
 
       setResultFilename(body.filename || "출고리스트_완성.xlsx");
       setStats(body.stats ?? {});

@@ -31,6 +31,17 @@ test.each([
   expect(results[0]._matched).toBe(true);
 });
 
+test("돈육[사골]은 기존 [사골,잡뼈]처럼 원패스 '잡뼈' 행도 매칭", () => {
+  const { results, warnings } = matchAll([ship("무항생제돈육[사골]")], [op("잡뼈")]);
+  expect(warnings).toHaveLength(0);
+  expect(results[0]._matched).toBe(true);
+});
+
+test("돈육[잡뼈]는 사골 행과 매칭되지 않음 (별칭은 사골에만 적용)", () => {
+  const { warnings } = matchAll([ship("무항생제돈육[잡뼈]")], [op("사골")]);
+  expect(warnings).toHaveLength(1);
+});
+
 test("사골은 다른 부위(등뼈)와 매칭되지 않음", () => {
   const { warnings } = matchAll([ship("무항생제돈육[사골]")], [op("등뼈")]);
   expect(warnings).toHaveLength(1);
